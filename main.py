@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import os
+import os,random, argparse
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -14,12 +14,21 @@ from transformers import Trainer, TrainingArguments
 from transformers import AutoModelForSequenceClassification
 
 from datasets import Dataset
-from datasets import load_dataset
 from sklearn.metrics import accuracy_score, f1_score
-from transformers import DistilBertConfig
+#from transformers import DistilBertConfig
 
 # config = DistilBertConfig()
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def seed_everything(seed=11711):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+
 class Sarcasm_detection_config():
   def __init__(self, num_labels, tokenizer, bert_ckpt, per_device_train_batch_size, \
                per_device_eval_batch_size, output_dir,\
@@ -69,14 +78,22 @@ class Sarcasm_detection():
     self.trainer.set_device(device)
     self.trainer.train()
 
-  def predict(self, dataloader_test):
+  def predict(self, dataloader_test, output_file = None):
     self.trainer.evaluate()
     preds_output = self.trainer.predict(dataloader_test)
     scores = torch.from_numpy(preds_output[0]).softmax(1)
     y_preds = np.argmax(scores.numpy(), axis = 1)
     #accuracy = np.sum(y_preds == dataloader_test["label"])/np.size(y_preds)
+    if output_file != None:
+        output_df = pd.DataFrame()
+        output_df["tweet"] = dataloader_test["tweet"]
+        output_df["true_label"] = dataloader_test["label"]
+        output_df["pred_label"] = y_preds 
+        output_df["probit"] = scores.numpy().max(axis = 1)
+        output_df.to_csv(output_file, index = False)
+
     accuracy = accuracy_score(dataloader_test["label"], y_preds)
-    f1 = f1_score(dataloader_test["label"], y_preds, average="weighted")
+    f1 = f1_score(dataloader_test["label"], y_preds, average="weighted", pos_label = 1)
     return (accuracy, f1)
 
 class iSarcasmTrainer(Trainer):
@@ -88,7 +105,7 @@ class iSarcasmTrainer(Trainer):
         labels = inputs.get("labels")
         outputs = model(**inputs)
         logits = outputs.get("logits")
-        loss_fcn = nn.CrossEntropyLoss(weight = torch.tensor([0.25, 0.75], device = self.device))
+        loss_fcn = nn.CrossEntropyLoss(weight = torch.tensor([0.75, 0.25], device = self.device))
         #loss_fcn = nn.MultiMarginLoss(p=2)
         loss = loss_fcn(logits.view(-1, self.model.config.num_labels), labels.view(-1))
         return (loss, outputs) if return_outputs else loss
@@ -100,18 +117,22 @@ def load_dataset(file, rename_dict, tweet_col, label_col):
 
 
 
-def main():
-  bert_ckpt = "cardiffnlp/twitter-roberta-base-sentiment"
-  num_labels = 2
-  batch_size = 32
-  weight_decay = 0.01
-  warmup_steps = 500
-  epochs = 5
+def main(args):
 
   default_output_dir = "ckpt"
-  DATA_DIR = "data"
-  TRAIN_FILE = "isarcasm_train_v2.csv"
-  TEST_FILE = "isarcasm_test_v2.csv"
+    
+  # Load arguments from args
+  bert_ckpt = args.bert_ckpt
+  num_labels = args.num_labels
+  batch_size = args.batch_size
+  weight_decay = args.weight_decay
+  warmup_steps = args.warmup
+  epochs = args.epochs
+  test_label_col = args.test_label_col
+  train_label_col = args.train_label_col
+  
+  TRAIN_FILE = args.train
+  TEST_FILE = args.test
 
   device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
   
@@ -133,12 +154,12 @@ def main():
   model_name = f"{bert_ckpt}-finetune-isarcasm"
 
   # Load datasets
-  train_dataset = load_dataset(os.path.join(DATA_DIR, TRAIN_FILE), \
-                                {"sarcastic": "label"},
+  train_dataset = load_dataset(TRAIN_FILE, \
+                                {train_label_col: "label"},
                                 "tweet", \
                                 "label")
-  test_dataset = load_dataset(os.path.join(DATA_DIR, TEST_FILE),\
-                                {"sarcasm": "label"},
+  test_dataset = load_dataset(TEST_FILE,\
+                                {test_label_col: "label"},
                                 "tweet", \
                                 "label")
   train_dataset = train_dataset.class_encode_column("label")
@@ -158,11 +179,46 @@ def main():
   sarcasm_detector = Sarcasm_detection(sarcasm_config, device)
   sarcasm_detector.train(train_encoded, test_encoded, model_name, device)
   acc_train, f1_train =  sarcasm_detector.predict(train_encoded)
-  acc_test, f1_test = sarcasm_detector.predict(test_encoded)
+  acc_test, f1_test = sarcasm_detector.predict(test_encoded, output_file = args.test_out)
   print(f"Training: Accuracy: {acc_train}, F1-Score: {f1_train}")
   print(f"Test: Accuracy: {acc_test}, F1-Score: {f1_test}")
 
+
+def get_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--bert_ckpt", type=str, default="cardiffnlp/twitter-roberta-base-sentiment")
+    parser.add_argument("--train", type=str, default="data/Train_Dataset.csv")
+    parser.add_argument("--dev", type=str, default="data/Test_Dataset.csv")
+    parser.add_argument("--test", type=str, default="data/Test_Dataset.csv")
+    parser.add_argument("--test_label_col", type=str, default = "sarcastic")
+    parser.add_argument("--train_label_col", type=str, default = "sarcastic")
+    parser.add_argument("--dev_label_col", type=str, default = "sarcastic")
+    parser.add_argument("--seed", type=int, default=11711)
+    parser.add_argument("--epochs", type=int, default=5)
+    parser.add_argument("--num_labels", type=int, default=2)
+
+
+    parser.add_argument("--dev_out", type=str, default="isarcasm-dev-output.txt")
+    parser.add_argument("--test_out", type=str, default="isarcasm-test-output.txt")
+    parser.add_argument("--filepath", type=str, default=None)
+    parser.add_argument("--warmup", type=float,default=0)
+
+
+    # hyper parameters
+    parser.add_argument("--weight_decay", type=float, default=0.01)
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--hidden_dropout_prob", type=float, default=0.3)
+    parser.add_argument("--lr", type=float, default=1e-5)
+
+    args = parser.parse_args()
+    print(f"args: {vars(args)}")
+    return args
+
 if __name__ == "__main__":
-  main()
+  args = get_args()
+  if args.filepath is None:
+        args.filepath = f'{args.epochs}-{args.lr}.pt' # save path
+  seed_everything(args.seed)
+  main(args)
 
 
