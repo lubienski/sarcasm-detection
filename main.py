@@ -19,7 +19,7 @@ from sklearn.metrics import accuracy_score, f1_score
 from transformers import DistilBertConfig
 
 # config = DistilBertConfig()
-
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class Sarcasm_detection_config():
   def __init__(self, num_labels, tokenizer, bert_ckpt, per_device_train_batch_size, \
                per_device_eval_batch_size, output_dir,\
@@ -48,7 +48,9 @@ class Sarcasm_detection_config():
 class Sarcasm_detection():
 
   def __init__(self, config, device):
-    self.model = AutoModelForSequenceClassification.from_pretrained(config.bert_ckpt, num_labels = config.num_labels, ignore_mismatched_sizes=True)
+    self.model = AutoModelForSequenceClassification.from_pretrained(config.bert_ckpt,\
+                                                            num_labels = config.num_labels,\
+                                                            ignore_mismatched_sizes=True)
     self.model = self.model.to(device)
     self.training_args = config.training_args
     self.tokenizer = config.tokenizer
@@ -56,29 +58,47 @@ class Sarcasm_detection():
 
   def train(self, train_dataset, val_dataset, model_name, device):
     self.training_args.output_dir = model_name
-    self.trainer = Trainer(
+    self.trainer = iSarcasmTrainer(
+    #self.trainer = Trainer(
         model=self.model,
         args=self.training_args,
         train_dataset= train_dataset,
         eval_dataset=val_dataset,
         tokenizer=self.tokenizer,
     )
-
+    self.trainer.set_device(device)
     self.trainer.train()
 
   def predict(self, dataloader_test):
     self.trainer.evaluate()
     preds_output = self.trainer.predict(dataloader_test)
-    y_preds = np.argmax(preds_output.predictions, axis = 1)
-    accuracy = np.sum(y_preds == dataloader_test["label"])/np.size(y_preds)
+    scores = torch.from_numpy(preds_output[0]).softmax(1)
+    y_preds = np.argmax(scores.numpy(), axis = 1)
+    #accuracy = np.sum(y_preds == dataloader_test["label"])/np.size(y_preds)
+    accuracy = accuracy_score(dataloader_test["label"], y_preds)
     f1 = f1_score(dataloader_test["label"], y_preds, average="weighted")
     return (accuracy, f1)
+
+class iSarcasmTrainer(Trainer):
     
+    def set_device(self, device):
+        self.device = device
+
+    def compute_loss(self, model, inputs, return_outputs = False):
+        labels = inputs.get("labels")
+        outputs = model(**inputs)
+        logits = outputs.get("logits")
+        loss_fcn = nn.CrossEntropyLoss(weight = torch.tensor([0.25, 0.75], device = self.device))
+        #loss_fcn = nn.MultiMarginLoss(p=2)
+        loss = loss_fcn(logits.view(-1, self.model.config.num_labels), labels.view(-1))
+        return (loss, outputs) if return_outputs else loss
 
 def load_dataset(file, rename_dict, tweet_col, label_col):
 	df = pd.read_csv(file)
 	df = df.rename(columns = rename_dict)
 	return Dataset.from_pandas(df[[tweet_col, label_col]])
+
+
 
 def main():
   bert_ckpt = "cardiffnlp/twitter-roberta-base-sentiment"
@@ -104,10 +124,10 @@ def main():
                                             tokenizer=tokenizer,\
                                             bert_ckpt = bert_ckpt, \
                                             num_train_epochs = epochs, \
-                                            evaluation_strategy = "steps",\
+                                            evaluation_strategy = "epoch",\
                                             warmup = warmup_steps, weight_decay = weight_decay, \
                                             per_device_train_batch_size = batch_size, \
-                                            per_device_eval_batch_size = batch_size*2, \
+                                            per_device_eval_batch_size = 64, \
                                             output_dir = default_output_dir
                                             )
   model_name = f"{bert_ckpt}-finetune-isarcasm"
