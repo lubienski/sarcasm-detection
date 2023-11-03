@@ -1,4 +1,4 @@
-##CS 769 -  Project Proposal Repo
+## CS 769 -  Project Proposal Repo
 ### Group 7
 
 Contributors: Yuna Hwang, Anna Lubienski, Jane Zhang
