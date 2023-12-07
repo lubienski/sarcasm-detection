@@ -16,7 +16,8 @@ Contributors: Yuna Hwang, Anna Lubienski, Jane Zhang
 * pandas
 * scipy
 
-```# Follow instruction in ./continue_pretrained_bert_ckpt/README.md to download the trained `task-specific continue-pretrained BERT encoder` and place it in ./continue_pretrained_bert_ckpt
+```
+Follow instruction in ./continue_pretrained_bert_ckpt/README.md to download the trained `task-specific continue-pretrained BERT encoder` and place it in ./continue_pretrained_bert_ckpt
 ```
 
 ## Training
