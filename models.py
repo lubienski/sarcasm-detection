@@ -1,10 +1,16 @@
 import math
-
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import CrossEntropyLoss
-from transformers import BertModel
+from transformers import BertModel,BertConfig
+
+from adapters import BertAdapterModel
+from adapters.composition import Fuse
+from adapters.composition import Stack
+
+from train_adapter import TASK1, TASK2
 
 
 def gelu(x):
@@ -182,7 +188,7 @@ class ContBert(nn.Module):
     def __init__(self):
         super(ContBert, self).__init__()
         self.text_bert = BertModel.from_pretrained('bert-base-uncased', return_dict = False)
-        saved_info = torch.load("./cont_pretrained_bert.ckpt_3", map_location=torch.device('cpu'))
+        saved_info = torch.load("./continue_pretrained_bert_ckpt/cont_pretrained_bert.ckpt_3", map_location=torch.device('cpu'))
 
         state_dict = saved_info["model_state_dict"]
         state_dict = {key.replace("bert.", ""):val for key, val in state_dict.items() if "cls" not in key}
@@ -253,6 +259,9 @@ class ContBert(nn.Module):
 
 
 class OurBert(nn.Module):
+    """
+    This model use the finetuned Bert with flute dataset as the text encoder
+    """
     def __init__(self):
         super(OurBert, self).__init__()
         # Jane: Added to account for contraction and entailment
@@ -281,6 +290,193 @@ class OurBert(nn.Module):
 
         know_info, pooled_know_info = self.know_bert(input_ids=know_ids, attention_mask=know_mask)
 
+        #print(know_info)
+        # 32*40*768
+        attn = torch.matmul(text_info, know_info.transpose(1, 2))
+        attn = F.softmax(attn, dim=-1)
+        know_text = torch.matmul(attn, know_info)
+
+        combine_info = torch.cat([text_info, torch.mean(know_info, dim=1).unsqueeze(1).expand(text_info.size(0),
+                                                                                              text_info.size(1),
+                                                                                              text_info.size(-1))],
+                                 dim=-1)
+        alpha = self.W_gate(combine_info)
+        alpha = F.sigmoid(alpha)
+
+        # 32*1*768
+        text_info = torch.matmul(alpha.transpose(1, 2), text_info)
+        # 32*1*768
+        know_text = torch.matmul((1 - alpha).transpose(1, 2), know_text)
+        # 32*1*768
+
+        #no gate
+        ################################################
+        # res = torch.cat([text_info.squeeze(1), know_text.squeeze(1)],dim=1)
+        ################################################
+
+
+        res = self.output(know_text, text_info)
+
+        # 32*1*3072
+        # no-gate
+        ################################################
+        # res = torch.mean(res,dim=1)
+        ################################################
+        intermediate_res = self.intermediate(res)
+        # 32*1*768
+        res = self.secode_output(intermediate_res, res)
+
+
+        # 32*40*768
+        # res = text_info+know_text
+        # res = torch.mean(res,dim=1)
+        logits = self.classifier(res)
+
+        if labels is not None:
+            loss_fct = CrossEntropyLoss()
+            loss = loss_fct(logits.view(-1, 2), labels.view(-1))
+            return loss
+        else:
+            return logits
+
+
+class FuseAdapterBert(nn.Module):
+
+    def __init__(self, adapter_task1_dir, adapter_task2_dir):
+        super(FuseAdapterBert, self).__init__()
+        # Load the ContBert model
+        model_dir = "./continue_pretrained_bert_ckpt/cont_pretrained_bert.ckpt_3"
+
+        # Load saved model above
+        ghosh_label = {1: "sarcastic", 0: "non-sarcastic"}
+        config = BertConfig.from_pretrained(
+                            "bert-base-uncased",
+                            id2label=ghosh_label,
+                        )
+        loaded_model = BertAdapterModel.from_pretrained("bert-base-uncased", config = config)
+        # loaded_model.load_state_dict(torch.load(model_w_2_adapters_dir), strict=False)
+        contBert_saved_info = torch.load(model_dir, map_location=torch.device('cpu'))
+        contBert_state_dict = contBert_saved_info["model_state_dict"]
+        loaded_model.load_state_dict(contBert_state_dict, strict=False)
+
+        loaded_model.load_adapter(adapter_task1_dir, with_head = False)
+        loaded_model.load_adapter(adapter_task2_dir, with_head = False)
+        
+        # Fuse layer setup
+        loaded_model.add_adapter_fusion(Fuse(TASK1, TASK2))
+        loaded_model.set_active_adapters(Fuse(TASK1, TASK2))
+
+        # Unfreeze and activate fusion setup
+        adapter_setup = Fuse(TASK1, TASK2)
+        loaded_model.train_adapter_fusion(adapter_setup)
+
+        # self.text_bert = BertModel.from_pretrained('bert-base-uncased', return_dict = False)
+        self.text_bert = loaded_model.bert
+
+
+        self.know_bert = BertModel.from_pretrained('bert-base-uncased', return_dict = False)
+        self.W_gate = nn.Linear(768 * 2, 1)
+        self.intermediate = BertIntermediate()
+        self.output = BertSelfOutput()
+        self.dropout = nn.Dropout(0.1)
+        self.classifier = nn.Linear(768, 2)
+        self.secode_output = BertOutput()
+
+    def forward(self, text_ids, text_mask, know_ids, know_mask, labels=None):
+        text_info, pooled_text_info = self.text_bert(input_ids=text_ids, attention_mask=text_mask).values()
+        know_info, pooled_know_info = self.know_bert(input_ids=know_ids, attention_mask=know_mask)
+        
+        #print(know_info)
+        # 32*40*768
+        attn = torch.matmul(text_info, know_info.transpose(1, 2))
+        attn = F.softmax(attn, dim=-1)
+        know_text = torch.matmul(attn, know_info)
+
+        combine_info = torch.cat([text_info, torch.mean(know_info, dim=1).unsqueeze(1).expand(text_info.size(0),
+                                                                                              text_info.size(1),
+                                                                                              text_info.size(-1))],
+                                 dim=-1)
+        alpha = self.W_gate(combine_info)
+        alpha = F.sigmoid(alpha)
+
+        # 32*1*768
+        text_info = torch.matmul(alpha.transpose(1, 2), text_info)
+        # 32*1*768
+        know_text = torch.matmul((1 - alpha).transpose(1, 2), know_text)
+        # 32*1*768
+
+        #no gate
+        ################################################
+        # res = torch.cat([text_info.squeeze(1), know_text.squeeze(1)],dim=1)
+        ################################################
+
+
+        res = self.output(know_text, text_info)
+
+        # 32*1*3072
+        # no-gate
+        ################################################
+        # res = torch.mean(res,dim=1)
+        ################################################
+        intermediate_res = self.intermediate(res)
+        # 32*1*768
+        res = self.secode_output(intermediate_res, res)
+
+
+        # 32*40*768
+        # res = text_info+know_text
+        # res = torch.mean(res,dim=1)
+        logits = self.classifier(res)
+
+        if labels is not None:
+            loss_fct = CrossEntropyLoss()
+            loss = loss_fct(logits.view(-1, 2), labels.view(-1))
+            return loss
+        else:
+            return logits
+        
+class StackAdapterBert(nn.Module):
+    def __init__(self, adapter_task1_dir, adapter_task2_dir):
+        super(StackAdapterBert, self).__init__()
+        model_dir = "./continue_pretrained_bert_ckpt/cont_pretrained_bert.ckpt_3"
+
+        # adapter_dir = os.path.join(output_dir, "adapter_ckpt")
+
+        # Load saved model above
+        ghosh_label = {1: "sarcastic", 0: "non-sarcastic"}
+        config = BertConfig.from_pretrained(
+                            "bert-base-uncased",
+                            id2label=ghosh_label,
+                        )
+        loaded_model = BertAdapterModel.from_pretrained("bert-base-uncased", config = config)
+        # loaded_model.load_state_dict(torch.load(model_w_2_adapters_dir), strict=False)
+        contBert_saved_info = torch.load(model_dir, map_location=torch.device('cpu'))
+        contBert_state_dict = contBert_saved_info["model_state_dict"]
+        loaded_model.load_state_dict(contBert_state_dict, strict=False)
+
+        loaded_model.load_adapter(adapter_task1_dir, with_head = False)
+        loaded_model.load_adapter(adapter_task2_dir, with_head = False)
+
+        
+        # Unfreeze and activate stack setup
+        loaded_model.active_adapters = Stack(TASK1, TASK2)
+
+        # self.text_bert = BertModel.from_pretrained('bert-base-uncased', return_dict = False)
+        self.text_bert = loaded_model.bert
+
+
+        self.know_bert = BertModel.from_pretrained('bert-base-uncased', return_dict = False)
+        self.W_gate = nn.Linear(768 * 2, 1)
+        self.intermediate = BertIntermediate()
+        self.output = BertSelfOutput()
+        self.dropout = nn.Dropout(0.1)
+        self.classifier = nn.Linear(768, 2)
+        self.secode_output = BertOutput()
+    
+    def forward(self, text_ids, text_mask, know_ids, know_mask, labels=None):
+        text_info, pooled_text_info = self.text_bert(input_ids=text_ids, attention_mask=text_mask).values()
+        know_info, pooled_know_info = self.know_bert(input_ids=know_ids, attention_mask=know_mask)
+        
         #print(know_info)
         # 32*40*768
         attn = torch.matmul(text_info, know_info.transpose(1, 2))

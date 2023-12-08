@@ -7,7 +7,7 @@ from scipy.special import softmax
 import pandas as pd
 import numpy as np
 import torch
-from models import Bert, KLBert, Bert_concat, OurBert
+from models import Bert, KLBert, Bert_concat, FuseAdapterBert, StackAdapterBert
 from optimizer import BertAdam
 from sklearn.metrics import precision_recall_fscore_support
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
@@ -88,11 +88,19 @@ def main():
                         default=42,
                         help="random seed for initialization")
     parser.add_argument('--model_select', default='KL-Bert',
-                        help='model select')  # 'Bert-Base', 'KL-Bert', 'Bert_concat', 'OurBert'
+                        help='model select')  # 'Bert-Base', 'KL-Bert', 'Bert_concat', 'FuseAdapterBert', 'StackAdapterBert'
     parser.add_argument('--know_strategy', default='common_know.txt',
                         help='know strategy')  # common_know.txt, major_sent_know.txt, minor_sent_know.txt
     parser.add_argument('--know_num', default="5",
                         help='know num to use')  # 1 2 3 4 5
+    parser.add_argument("--adapter_task1_dir",
+                        default="./trained_adapters/adapter_flute_20_epoch_fixed_ContBert_v1",
+                        type=str,
+                        help="The file path of a trained adapter")
+    parser.add_argument("--adapter_task2_dir",
+                        default="trained_adapters/adapter_ghosh_50_epoch_fixed_ContBert_v1",
+                        type=str,
+                        help="The file path of a trained adapter")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -133,10 +141,10 @@ def main():
         model = KLBert()
     elif args.model_select == 'Bert_concat':
         model = Bert_concat()
-    elif args.model_select == 'OurBert':
-        model = OurBert()
-    elif args.model_select == "contBert":
-        model = torch.load("cont_pretrained_bert.ckpt")
+    elif args.model_select == "FuseAdapterBert":
+        model = FuseAdapterBert(args.adapter_task1_dir, args.adapter_task2_dir)
+    elif args.model_select == "StackAdapterBert":
+        model = StackAdapterBert(args.adapter_task1_dir, args.adapter_task2_dir)
     else:
         raise ValueError("A model must be given.")
 
@@ -160,38 +168,20 @@ def main():
     train_loss = 0
     if args.do_train:
         
-        # Jane added
-        if args.model_select == 'OurBert':
-            train_features = processor.convert_examples_to_features_w_flute(train_examples, label_list, tokenizer, True)
-            eval_features = processor.convert_examples_to_features_w_flute(eval_examples, label_list, tokenizer, True)
+        train_features = processor.convert_examples_to_features(train_examples, label_list, tokenizer)
+        eval_features = processor.convert_examples_to_features(eval_examples, label_list, tokenizer)
 
-            train_input_ids, train_input_mask, train_know_ids, train_know_mask, train_label_ids, train_flute_ids, train_flute_masks = train_features
-            train_data = TensorDataset(train_input_ids, train_input_mask, train_know_ids, train_know_mask,
-                                   train_label_ids, train_flute_ids, train_flute_masks)
-            train_dataloader = DataLoader(train_data, sampler=RandomSampler(train_data),
-                                      batch_size=args.train_batch_size)
+        train_input_ids, train_input_mask, train_know_ids, train_know_mask, train_label_ids = train_features
+        train_data = TensorDataset(train_input_ids, train_input_mask, train_know_ids, train_know_mask,
+                                train_label_ids)
+        train_dataloader = DataLoader(train_data, sampler=RandomSampler(train_data),
+                                    batch_size=args.train_batch_size)
 
-            eval_input_ids, eval_input_mask, eval_know_ids, eval_know_mask, eval_label_ids, eval_flute_ids, eval_flute_masks = eval_features
-            eval_data = TensorDataset(eval_input_ids, eval_input_mask, eval_know_ids, eval_know_mask,
-                                  eval_label_ids, eval_flute_ids, eval_flute_masks)
-            eval_dataloader = DataLoader(eval_data, sampler=SequentialSampler(eval_data),
-                                     batch_size=args.eval_batch_size)
-            
-        else:
-            train_features = processor.convert_examples_to_features(train_examples, label_list, tokenizer)
-            eval_features = processor.convert_examples_to_features(eval_examples, label_list, tokenizer)
-
-            train_input_ids, train_input_mask, train_know_ids, train_know_mask, train_label_ids = train_features
-            train_data = TensorDataset(train_input_ids, train_input_mask, train_know_ids, train_know_mask,
-                                   train_label_ids)
-            train_dataloader = DataLoader(train_data, sampler=RandomSampler(train_data),
-                                      batch_size=args.train_batch_size)
-
-            eval_input_ids, eval_input_mask, eval_know_ids, eval_know_mask, eval_label_ids = eval_features
-            eval_data = TensorDataset(eval_input_ids, eval_input_mask, eval_know_ids, eval_know_mask,
-                                  eval_label_ids)
-            eval_dataloader = DataLoader(eval_data, sampler=SequentialSampler(eval_data),
-                                     batch_size=args.eval_batch_size)
+        eval_input_ids, eval_input_mask, eval_know_ids, eval_know_mask, eval_label_ids = eval_features
+        eval_data = TensorDataset(eval_input_ids, eval_input_mask, eval_know_ids, eval_know_mask,
+                                eval_label_ids)
+        eval_dataloader = DataLoader(eval_data, sampler=SequentialSampler(eval_data),
+                                    batch_size=args.eval_batch_size)
 
         max_acc = 0.0
         print("*************** Running training ***************")
@@ -205,12 +195,8 @@ def main():
             nb_tr_steps = 0
             for step, batch in enumerate(train_dataloader):
                 batch = tuple(t.to(device) for t in batch)
-                if args.model_select == 'OurBert':
-                    train_input_ids, train_input_mask, train_know_ids, train_know_mask, train_label_ids, train_flute_ids, train_flute_masks = batch
-                    loss = model(train_input_ids, train_input_mask, train_flute_ids, train_flute_masks, train_know_ids, train_know_mask, train_label_ids)
-                else:    
-                    train_input_ids, train_input_mask, train_know_ids, train_know_mask, train_label_ids = batch
-                    loss = model(train_input_ids, train_input_mask, train_know_ids, train_know_mask, train_label_ids)
+                train_input_ids, train_input_mask, train_know_ids, train_know_mask, train_label_ids = batch
+                loss = model(train_input_ids, train_input_mask, train_know_ids, train_know_mask, train_label_ids)
                 if n_gpu > 1:
                     loss = loss.mean()
                 loss.backward()
@@ -232,22 +218,13 @@ def main():
             pred_label_list = []
             for batch in eval_dataloader:
                 batch = tuple(t.to(device) for t in batch)
-                if args.model_select == 'OurBert':
-                    eval_input_ids, eval_input_mask, eval_know_ids, eval_know_mask, \
-                                  eval_label_ids, eval_flute_ids, eval_flute_masks = batch
-                else:
-                    eval_input_ids, eval_input_mask, eval_know_ids, eval_know_mask, eval_label_ids = batch
+                eval_input_ids, eval_input_mask, eval_know_ids, eval_know_mask, eval_label_ids = batch
                 
                 with torch.no_grad():
-                    if args.model_select == 'OurBert':
-                        tmp_eval_loss = model(eval_input_ids, eval_input_mask, eval_flute_ids, eval_flute_masks, \
-                                            eval_know_ids, eval_know_mask, eval_label_ids)
-                        logits = model(eval_input_ids, eval_input_mask, eval_flute_ids, eval_flute_masks, \
-                                            eval_know_ids, eval_know_mask)
-                    else:
-                        tmp_eval_loss = model(eval_input_ids, eval_input_mask, eval_know_ids, eval_know_mask,
-                                          eval_label_ids)
-                        logits = model(eval_input_ids, eval_input_mask, eval_know_ids, eval_know_mask)
+                    tmp_eval_loss = model(eval_input_ids, eval_input_mask, eval_know_ids, eval_know_mask,
+                                        eval_label_ids)
+                    logits = model(eval_input_ids, eval_input_mask, eval_know_ids, eval_know_mask)
+                
                 logits = logits.detach().cpu().numpy()
                 label_ids = eval_label_ids.to('cpu').numpy()
                 true_label_list.append(label_ids)
@@ -275,6 +252,9 @@ def main():
                 torch.save(model.state_dict(), output_model_file)
                 max_acc = eval_accuracy
 
+            test_only(model, output_model_file, device, args, processor,
+                        label_list, tokenizer)
+
     if args.do_test:
         model.load_state_dict(torch.load(output_model_file))
        
@@ -284,18 +264,11 @@ def main():
         print("***** Running evaluation on Test Set*****")
         print("  Num examples = %d", len(test_examples))
         print("  Batch size = %d", args.eval_batch_size)
-        print("HEYHEY")
-        if args.model_select == 'OurBert':
-            test_features = processor.convert_examples_to_features_w_flute(test_examples, label_list, tokenizer, True)
-            test_input_ids, test_input_mask, test_know_ids, test_know_mask, test_label_ids, test_flute_ids, test_flute_masks = test_features
-            test_data = TensorDataset(test_input_ids, test_input_mask, test_know_ids, test_know_mask, test_label_ids, test_flute_ids, test_flute_masks)
-            test_dataloader = DataLoader(test_data, sampler=SequentialSampler(test_data), batch_size=args.eval_batch_size)
-        else:
-            test_features = processor.convert_examples_to_features(test_examples, label_list, tokenizer)
-            test_input_ids, test_input_mask, test_know_ids, test_know_mask, test_label_ids = test_features
-            test_data = TensorDataset(test_input_ids, test_input_mask, test_know_ids, test_know_mask, test_label_ids)
-            test_dataloader = DataLoader(test_data, sampler=SequentialSampler(test_data),
-                                     batch_size=args.eval_batch_size)
+        test_features = processor.convert_examples_to_features(test_examples, label_list, tokenizer)
+        test_input_ids, test_input_mask, test_know_ids, test_know_mask, test_label_ids = test_features
+        test_data = TensorDataset(test_input_ids, test_input_mask, test_know_ids, test_know_mask, test_label_ids)
+        test_dataloader = DataLoader(test_data, sampler=SequentialSampler(test_data),
+                                    batch_size=args.eval_batch_size)
 
         model.eval()
 
@@ -307,17 +280,10 @@ def main():
         for batch in test_dataloader:
             batch = tuple(t.to(device) for t in batch)
             with torch.no_grad():
-                if args.model_select == 'OurBert':
-                    test_input_ids, test_input_mask, test_know_ids, test_know_mask, test_label_ids, test_flute_ids, test_flute_masks = batch                
-                    tmp_eval_loss = model(test_input_ids, test_input_mask, test_flute_ids, test_flute_masks, \
-                                        test_know_ids, test_know_mask, test_label_ids)
-                    logits = model(test_input_ids, test_input_mask, test_flute_ids, test_flute_masks, test_know_ids, test_know_mask)
-    
-                else:
-                    test_input_ids, test_input_mask, test_know_ids, test_know_mask, test_label_ids = batch
-                    tmp_eval_loss = model(test_input_ids, test_input_mask, test_know_ids, test_know_mask,
-                                      test_label_ids)
-                    logits = model(test_input_ids, test_input_mask, test_know_ids, test_know_mask)
+                test_input_ids, test_input_mask, test_know_ids, test_know_mask, test_label_ids = batch
+                tmp_eval_loss = model(test_input_ids, test_input_mask, test_know_ids, test_know_mask,
+                                    test_label_ids)
+                logits = model(test_input_ids, test_input_mask, test_know_ids, test_know_mask)
             logits = logits.detach().cpu().numpy()
             label_ids = test_label_ids.to('cpu').numpy()
             true_label_list.append(label_ids)
@@ -354,6 +320,71 @@ def main():
             print(f"train_loss: {loss}, test_loss: {eval_loss}, accucary: {eval_accuracy}, precision: {precision}, recall: {recall}, f_score: {F_score}")
             writer.write(f"train_loss: {loss}, test_loss: {eval_loss}, accucary: {eval_accuracy}, precision: {precision}, recall: {recall}, f_score: {F_score}\n")
 
+def test_only(model, output_model_file, 
+              device, args, processor,label_list, tokenizer):
+    model.load_state_dict(torch.load(output_model_file))
+    
+    model.to(device)
+
+    test_examples = processor.get_test_examples()
+    print("***** Running evaluation on Test Set*****")
+    print("  Num examples = %d", len(test_examples))
+    print("  Batch size = %d", args.eval_batch_size)
+
+
+    test_features = processor.convert_examples_to_features(test_examples, label_list, tokenizer)
+    test_input_ids, test_input_mask, test_know_ids, test_know_mask, test_label_ids = test_features
+    test_data = TensorDataset(test_input_ids, test_input_mask, test_know_ids, test_know_mask, test_label_ids)
+    test_dataloader = DataLoader(test_data, sampler=SequentialSampler(test_data),
+                                batch_size=args.eval_batch_size)
+
+    model.eval()
+
+    eval_loss, eval_accuracy = 0, 0
+    nb_eval_steps, nb_eval_examples = 0, 0
+    true_label_list = []
+    pred_label_list = []
+    
+    print("***** Running evaluation on Test Set*****")
+    print("  Num examples = %d", len(test_examples))
+    print("  Batch size = %d", args.eval_batch_size)
+    for batch in test_dataloader:
+        batch = tuple(t.to(device) for t in batch)
+        test_input_ids, test_input_mask, test_know_ids, test_know_mask, test_label_ids = batch
+        with torch.no_grad():
+            tmp_eval_loss = model(test_input_ids, test_input_mask, test_know_ids, test_know_mask,
+                                test_label_ids)
+            logits = model(test_input_ids, test_input_mask, test_know_ids, test_know_mask)
+        logits = logits.detach().cpu().numpy()
+        label_ids = test_label_ids.to('cpu').numpy()
+        true_label_list.append(label_ids)
+        pred_label_list.append(logits)
+
+        tmp_eval_accuracy = accuracy(logits, label_ids)
+
+        eval_loss += tmp_eval_loss.mean().item()
+        eval_accuracy += tmp_eval_accuracy
+
+        nb_eval_examples += test_input_ids.size(0)
+        nb_eval_steps += 1
+        
+    eval_loss = eval_loss / nb_eval_steps
+    eval_accuracy = eval_accuracy / nb_eval_examples
+
+    true_label = np.concatenate(true_label_list)
+    pred_outputs = np.concatenate(pred_label_list)
+
+    precision, recall, F_score = macro_f1(true_label, pred_outputs)
+
+    print("***** Test Eval results *****")
+    print(f"test_loss: {eval_loss}, \
+          accucary: {eval_accuracy}, \
+          precision: {precision}, \
+          recall: {recall}, \
+          f_score: {F_score}")
+        
+    print(args)
+    
 
 if __name__ == "__main__":
     main()

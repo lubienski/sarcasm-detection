@@ -1,0 +1,21 @@
+{
+  "config": {
+    "activation_function": "tanh",
+    "bias": true,
+    "dropout_prob": null,
+    "head_type": "classification",
+    "label2id": {
+      "non-sarcastic": 0,
+      "sarcastic": 1
+    },
+    "layers": 2,
+    "num_labels": 2,
+    "use_pooler": false
+  },
+  "hidden_size": 768,
+  "model_class": "BertAdapterModel",
+  "model_name": "bert-base-uncased",
+  "model_type": "bert",
+  "name": "sarc",
+  "version": "0.1.0"
+}
