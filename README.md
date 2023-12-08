@@ -1,4 +1,4 @@
-## CS 769 -  Project Proposal Repo
+## CS 769 -  Project Report Repo
 ### Group 7
 
 Contributors: Yuna Hwang, Anna Lubienski, Jane Zhang
@@ -17,40 +17,24 @@ Contributors: Yuna Hwang, Anna Lubienski, Jane Zhang
 * scipy
 
 ## Training
-The script for using 10% Ghosh Data for Continue-pretraining is:
-```
-# TODO
-```
-where 
-* `--data_dir` can be set as `./data/SARC_politics`, `./data/Ghosh`, and `./data/Ptacek`  
-* `--model_select` can be set as `KL-Bert`, `Bert_concat`, and `Bert-Base`  
-* `--output_dir` should keep up with `data_dir` and `model_select` to be `./output/DATASETNAME_MODELNAME_output/`
-* `--know_strategy` is for different knowledge selecting strategies, which can be `common_know.txt`, `major_sent_know.txt`, and `minor_sent_know.txt`
-* `--know_num` is to choose how many items of knowledge are used for each sentence, which is set to `'5'`, `'4'`, `'3'`, `'2'`, `'1'`
 
+The script for training an adapter using FLUTE/Ghosh dataset and the continue-pretrained Bert encoder:
+```
+PYTHONENCODING=utf-8 python train_adapter.py \
+        --dataset_identifier flute \
+        --output_dir ./output/adapter_flute_20_epoch_fixed_ContBert_v2\
+        --bert_model ./continue_pretrained_bert_ckpt/cont_pretrained_bert.ckpt_3 \
+        --learning_rate 2e-4 \
+        --num_train_epochs 50
+```
+or use ```train_adapter.sh```
 
-The script for using the Continue-pretrained Bert model as the text Encoder to
-finetune with SarDeCK using the rest of 90% training data of Ghosh is:
-```
-# TODO
-```
 where 
-* `--data_dir` can be set as `./data/SARC_politics`, `./data/Ghosh`, and `./data/Ptacek`  
-* `--model_select` can be set as `KL-Bert`, `Bert_concat`, and `Bert-Base`  
-* `--output_dir` should keep up with `data_dir` and `model_select` to be `./output/DATASETNAME_MODELNAME_output/`
-* `--know_strategy` is for different knowledge selecting strategies, which can be `common_know.txt`, `major_sent_know.txt`, and `minor_sent_know.txt`
-* `--know_num` is to choose how many items of knowledge are used for each sentence, which is set to `'5'`, `'4'`, `'3'`, `'2'`, `'1'`
-
-The script for training an adapter using FLUTE dataset and the continue-pretrained Bert encoder:
-```
-# TODO
-```
-where 
-* `--data_dir` can be set as `./data/SARC_politics`, `./data/Ghosh`, and `./data/Ptacek`  
-* `--model_select` can be set as `KL-Bert`, `Bert_concat`, and `Bert-Base`  
-* `--output_dir` should keep up with `data_dir` and `model_select` to be `./output/DATASETNAME_MODELNAME_output/`
-* `--know_strategy` is for different knowledge selecting strategies, which can be `common_know.txt`, `major_sent_know.txt`, and `minor_sent_know.txt`
-* `--know_num` is to choose how many items of knowledge are used for each sentence, which is set to `'5'`, `'4'`, `'3'`, `'2'`, `'1'`
+* `--dataset_identifier` can be set as `flute` or `ghosh` 
+* `--output_dir` should keep up with `dataset_identifier` and `num_train_epochs` to be `./output/adapter_[DATASET_IDENTIFIER]_[NUM_TRAIN_EPOCHS]_fixed_ContBert/`
+* `--bert_model` path of the Bert encoder we want to use
+* `--learning_rate` 
+* `--num_train_epochs`
 
 The script for training an adapter using Ghosh dataset and the continue-pretrained Bert encoder:
 ```
@@ -80,6 +64,34 @@ where
 * `--output_dir` should keep up with `data_dir` and `model_select` to be `./output/DATASETNAME_MODELNAME_output/`
 * `--know_strategy` is for different knowledge selecting strategies, which can be `common_know.txt`, `major_sent_know.txt`, and `minor_sent_know.txt`
 * `--know_num` is to choose how many items of knowledge are used for each sentence, which is set to `'5'`, `'4'`, `'3'`, `'2'`, `'1'`
+
+
+
+
+The script for using 10% Ghosh Data for Continue-pretraining is:
+```
+PYTHONENCODING=utf-8 python continue_pretrain.py
+```
+
+
+
+(Reported in HW3: Project proposal)The script for using the Continue-pretrained Bert model as the text Encoder to
+finetune with SarDeCK using the rest of 90% training data of Ghosh is:
+```
+PYTHONENCODING=utf-8 python run_contBert.py \
+        --data_dir ./data/Ghosh \
+        --output_dir ./output/Ghosh_ContBert_output_02/ \
+	      --do_train --do_test --model_select ContBert \
+        --know_strategy minor_sent_know.txt
+```
+where 
+* `--data_dir` can is set to be `./data/Ghosh` in this project
+* `--model_select` can should be `KL-Bert`  
+* `--output_dir` should keep up with `data_dir` and `model_select` to be `./output/DATASETNAME_MODELNAME_output/`
+* `--know_strategy` is for different knowledge selecting strategies, which can be `common_know.txt`, `major_sent_know.txt`, and `minor_sent_know.txt`, we chose `minor_sent_know.txt` because this gives the best results empirically according to the paper
+* `--know_num` is to choose how many items of knowledge are used for each sentence, which is set to `'5'`, `'4'`, `'3'`, `'2'`, `'1'`, by default this is `5` and we use this value because this gives the best results empirically according to the paper
+
+
 
 
 [Code base adapted from https://github.com/LeqsNaN/SarDeCK/tree/main]
