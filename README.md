@@ -4,8 +4,6 @@
 Contributors: Yuna Hwang, Anna Lubienski, Jane Zhang
 
 
-
-
 ## Requirements
 * torch
 * transformers
@@ -16,9 +14,28 @@ Contributors: Yuna Hwang, Anna Lubienski, Jane Zhang
 * pandas
 * scipy
 
+## Clone the Repo
+
+```
+git clone {repo-link}
+```
+
+## To Download the model checkpoint
+There are two ways of downloading the BERT encoder that we performed task-specific continue pretraining:
+
+1. Go to this Google drive [link](https://drive.google.com/drive/folders/1hZAeXkW35kWDOzSRrRS6N3NflFhdnCAR?usp=sharing), and place the model checkpoint in this folder
+
+2. Or input the following bash command in terminal
+it will first install `gdown`, which is a library supports downloading files from google drive.
+Then it will use `gdown` to download this checkpoint.
+```
+bash ./continue_pretrained_bert_ckpt/download_bert_ckpts.sh
+```
+
 ## Training
 
 The script for training an adapter using FLUTE/Ghosh dataset and the continue-pretrained Bert encoder:
+
 ```
 PYTHONENCODING=utf-8 python train_adapter.py \
         --dataset_identifier flute \
@@ -27,7 +44,6 @@ PYTHONENCODING=utf-8 python train_adapter.py \
         --learning_rate 2e-4 \
         --num_train_epochs 10
 ```
-
 
 or use ```train_adapter.sh```
 
@@ -42,7 +58,7 @@ The script for training an adapter using Ghosh dataset and the continue-pretrain
 ```
 PYTHONENCODING=utf-8 python train_adapter.py \
         --dataset_identifier ghosh \
-        --output_dir ./output/adapter_flute_20_epoch_fixed_ContBert_v2\
+        --output_dir ./output/adapter_ghosh_20_epoch_fixed_ContBert_v1\
         --bert_model ./continue_pretrained_bert_ckpt/cont_pretrained_bert.ckpt_3 \
         --learning_rate 2e-4 \
         --num_train_epochs 50
@@ -51,6 +67,7 @@ PYTHONENCODING=utf-8 python train_adapter.py \
 
 
 The script for training with **Adapter Fusion** Layer in the text encoder:
+trained adapters are already saved in `./trained_adapters`
 ```
 PYTHONENCODING=utf-8 python run_classifier.py --data_dir ./data/Ghosh \
         --output_dir ./output/FuseAdapterBert_flute_gosh_output_04/ \
@@ -60,7 +77,7 @@ PYTHONENCODING=utf-8 python run_classifier.py --data_dir ./data/Ghosh \
         --learning_rate 3e-5 \
         --adapter_task1_dir ./trained_adapters/adapter_flute_20_epoch_fixed_ContBert_v1 \
         --adapter_task2_dir ./trained_adapters/adapter_ghosh_20_epoch_fixed_ContBert_v5 \
-        --know_strategy minor_sent_know.txt > FuseAdapter04.txt 2>&1 &
+        --know_strategy minor_sent_know.txt
 ```
 
 The script for training with **Stack Adapters** in the text encoder:
@@ -75,13 +92,7 @@ PYTHONENCODING=utf-8 python run_classifier.py --data_dir ./data/Ghosh \
         --adapter_task2_dir ./trained_adapters/adapter_ghosh_20_epoch_fixed_ContBert_v5 \
         --know_strategy minor_sent_know.txt
 ```
-
-
-The script for using 10% Ghosh Data for Continue-pretraining is:
-```
-PYTHONENCODING=utf-8 python continue_pretrain.py
-```
-
+or can use the script included in `./run_SarDeCK_w_adapter.sh`
 
 (Reported in HW3: Project proposal)The script for using the Continue-pretrained Bert model as the text Encoder to
 finetune with SarDeCK using the rest of 90% training data of Ghosh is:
