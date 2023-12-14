@@ -17,7 +17,7 @@ Contributors: Yuna Hwang, Anna Lubienski, Jane Zhang
 ## Clone the Repo
 
 ```
-git clone {repo-link}
+git clone -b final_report --single-branch https://github.com/lubienski/sarcasm-detection.git
 ```
 
 ## To Download the model checkpoint
