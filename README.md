@@ -3,17 +3,15 @@
 
 Contributors: Yuna Hwang, Anna Lubienski, Jane Zhang
 
+## Clone the Repo
+```
+git clone -b final_report --single-branch https://github.com/lubienski/sarcasm-detection.git
+```
 
 ## Requirements
 ```
 conda env create -f environment.yml
 conda activate 769_sarcasm
-```
-
-## Clone the Repo
-
-```
-git clone -b final_report --single-branch https://github.com/lubienski/sarcasm-detection.git
 ```
 
 ## To Download the model checkpoint
