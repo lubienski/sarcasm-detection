@@ -13,7 +13,7 @@ conda activate 769_sarcasm
 ## Clone the Repo
 
 ```
-git clone {repo-link}
+git clone -b final_report --single-branch https://github.com/lubienski/sarcasm-detection.git
 ```
 
 ## To Download the model checkpoint
@@ -29,8 +29,8 @@ bash ./continue_pretrained_bert_ckpt/download_bert_ckpts.sh
 ```
 
 ## Training
-
-The script for training an adapter using FLUTE/Ghosh dataset and the continue-pretrained Bert encoder:
+### Training adapters using FLUTE/Ghosh datasets
+The script for training an adapter using either the ```FLUTE dataset``` or the ```Ghosh dataset``` with the continue-pretrained Bert encoder is listed in ```train_adapter.sh```:
 
 ```
 PYTHONENCODING=utf-8 python train_adapter.py \
@@ -41,16 +41,14 @@ PYTHONENCODING=utf-8 python train_adapter.py \
         --num_train_epochs 10
 ```
 
-or use ```train_adapter.sh```
-
 where 
-* `--dataset_identifier` can be set as `flute` or `ghosh` 
+* `--dataset_identifier` can be set as either `flute` or `ghosh` 
 * `--output_dir` should keep up with `dataset_identifier` and `num_train_epochs` to be `./output/adapter_[DATASET_IDENTIFIER]_[NUM_TRAIN_EPOCHS]_fixed_ContBert/`
 * `--bert_model` path of the Bert encoder we want to use
 * `--learning_rate` 
 * `--num_train_epochs`
 
-The script for training an adapter using Ghosh dataset and the continue-pretrained Bert encoder:
+The script for training an adapter using Ghosh dataset and the continue-pretrained Bert encoder is further described:
 ```
 PYTHONENCODING=utf-8 python train_adapter.py \
         --dataset_identifier ghosh \
@@ -61,9 +59,11 @@ PYTHONENCODING=utf-8 python train_adapter.py \
 ```
 
 
+### Training with either fused/stacked adapters
+Script for training with either an adapter fusion layer or with a stacked adapter layer is listed in ```./run_SarDeCK_w_adapter.sh```.
 
-The script for training with **Adapter Fusion** Layer in the text encoder:
-trained adapters are already saved in `./trained_adapters`
+Specifically, the script for training with **Adapter Fusion** Layer in the text encoder is as follows:
+(trained adapters are already saved in `./trained_adapters`)
 ```
 PYTHONENCODING=utf-8 python run_classifier.py --data_dir ./data/Ghosh \
         --output_dir ./output/FuseAdapterBert_flute_gosh_output_04/ \
@@ -76,7 +76,7 @@ PYTHONENCODING=utf-8 python run_classifier.py --data_dir ./data/Ghosh \
         --know_strategy minor_sent_know.txt
 ```
 
-The script for training with **Stack Adapters** in the text encoder:
+The script for training with **Stack Adapters** in the text encoder is as follows:
 ```
 PYTHONENCODING=utf-8 python run_classifier.py --data_dir ./data/Ghosh \
         --output_dir ./output/StackAdapterBert_flute_gosh_output_02_a2_epoch50/ \
@@ -88,9 +88,9 @@ PYTHONENCODING=utf-8 python run_classifier.py --data_dir ./data/Ghosh \
         --adapter_task2_dir ./trained_adapters/adapter_ghosh_20_epoch_fixed_ContBert_v5 \
         --know_strategy minor_sent_know.txt
 ```
-or can use the script included in `./run_SarDeCK_w_adapter.sh`
 
-(Reported in HW3: Project proposal)The script for using the Continue-pretrained Bert model as the text Encoder to
+### Running code from Homework 3
+(Reported in HW3: Project proposal) The script for using the Continue-pretrained Bert model as the text Encoder to
 finetune with SarDeCK using the rest of 90% training data of Ghosh is:
 ```
 PYTHONENCODING=utf-8 python run_contBert.py \
