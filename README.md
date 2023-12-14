@@ -93,6 +93,7 @@ PYTHONENCODING=utf-8 python run_classifier.py --data_dir ./data/Ghosh \
         --know_strategy minor_sent_know.txt
 ```
 
+### Running code from Homework 3
 (Reported in HW3: Project proposal) The script for using the Continue-pretrained Bert model as the text Encoder to
 finetune with SarDeCK using the rest of 90% training data of Ghosh is:
 ```
