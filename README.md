@@ -5,14 +5,10 @@ Contributors: Yuna Hwang, Anna Lubienski, Jane Zhang
 
 
 ## Requirements
-* torch
-* transformers
-* adapters
-* datasets
-* tqdm
-* scikit-learn
-* pandas
-* scipy
+```
+conda env create -f environment.yml
+conda activate 769_sarcasm
+```
 
 ## Clone the Repo
 
