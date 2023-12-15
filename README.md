@@ -4,17 +4,19 @@
 Contributors: Yuna Hwang, Anna Lubienski, Jane Zhang
 
 
-## Requirements
-```
-conda env create -f environment.yml
-conda activate 769_sarcasm
-```
-
 ## Clone the Repo
 
 ```
 git clone -b final_report --single-branch https://github.com/lubienski/sarcasm-detection.git
 ```
+
+## Requirements
+```
+conda env create -f environment.yml
+conda activate 769_sarcasm
+
+```
+
 
 ## To Download the model checkpoint
 There are two ways of downloading the BERT encoder that we performed task-specific continue pretraining:
@@ -105,7 +107,9 @@ where
 * `--model_select` can should be `KL-Bert`  
 * `--output_dir` should keep up with `data_dir` and `model_select` to be `./output/DATASETNAME_MODELNAME_output/`
 * `--know_strategy` is for different knowledge selecting strategies, which can be `common_know.txt`, `major_sent_know.txt`, and `minor_sent_know.txt`, we chose `minor_sent_know.txt` because this gives the best results empirically according to the paper
-* `--know_num` is to choose how many items of knowledge are used for each sentence, which is set to `'5'`, `'4'`, `'3'`, `'2'`, `'1'`, by default this is `5` and we use this value because this gives the best results empirically according to the paper
+* `--know_num` is to choose how many items of knowledge are used for each sentence, which is set to `'5'`, `'4'`, `'3'`, `'2'`, `'1'`, by default this is `5` 
+and we use this value because this gives the best results empirically according to the paper
+* `--num_train_epochs` is 8 by default
 
 
 
